@@ -238,6 +238,7 @@ type PackageInternal struct {
 	BuildInfo         *debug.BuildInfo    // add this info to package main
 	TestmainGo        *[]byte             // content for _testmain.go
 	Embed             map[string][]string // //go:embed comment mapping
+	EmbedBuilds       []EmbedBuild        // //go:embedbuild directives
 	OrigImportPath    string              // original import path before adding '_test' suffix
 	PGOProfile        string              // path to PGO profile
 	ForMain           string              // the main package if this package is built specifically for it
@@ -2028,6 +2029,9 @@ func (p *Package) load(ld *modload.Loader, ctx context.Context, opts PackageOpts
 			setError(err)
 			embedErr := err.(*EmbedError)
 			p.Error.setPos(p.Internal.Build.EmbedPatternPos[embedErr.Pattern])
+		} else if p.Internal.EmbedBuilds, err = resolveEmbedBuilds(p.Internal.Build.Directives, p.Internal.Embed); err != nil {
+			p.Incomplete = true
+			setError(err)
 		}
 	}
 

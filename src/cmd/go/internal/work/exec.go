@@ -436,6 +436,9 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		if a1.Mode == "preprocess PGO profile" {
 			fmt.Fprintf(h, "pgofile %s\n", b.fileHash(a1.built))
 		}
+		if a1.Mode == "embed build" {
+			fmt.Fprintf(h, "embedbuild %s %s\n", a1.Actor.(*embedBuildActor).eb.Name, b.fileHash(a1.built))
+		}
 	}
 
 	return h.Sum()
@@ -898,6 +901,16 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 		embed.Files = make(map[string]string)
 		for _, file := range p.EmbedFiles {
 			embed.Files[file] = fsys.Actual(filepath.Join(p.Dir, file))
+		}
+		for _, a1 := range a.Deps {
+			if a1.Mode != "embed build" {
+				continue
+			}
+			eb := a1.Actor.(*embedBuildActor).eb
+			if !slices.Contains(embed.Patterns[eb.Pattern], eb.Name) {
+				embed.Patterns[eb.Pattern] = append(embed.Patterns[eb.Pattern], eb.Name)
+			}
+			embed.Files[eb.Name] = a1.built
 		}
 		js, err := json.MarshalIndent(&embed, "", "\t")
 		if err != nil {

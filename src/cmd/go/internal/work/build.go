@@ -861,6 +861,7 @@ func InstallPackages(ld *modload.Loader, ctx context.Context, patterns []string,
 //
 // See golang.org/issue/40276 for details and rationale.
 func installOutsideModule(ld *modload.Loader, ctx context.Context, args []string) {
+	embedBuildOutsideModule = true
 	ld.ForceUseModules = true
 	ld.RootMode = modload.NoRoot
 	ld.AllowMissingModuleImports()

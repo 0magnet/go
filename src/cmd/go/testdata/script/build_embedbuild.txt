@@ -1,0 +1,95 @@
+# //go:embedbuild embeds a build of another package for another target.
+[short] skip 'builds a js/wasm binary'
+
+go build -o main$GOEXE .
+exec ./main$GOEXE
+stdout '^blob/README$'
+stdout '^blob/app.wasm.gz$'
+stdout '^module magic 0061736d$'
+
+# The inner build is not cached as a file, but equal inputs give equal bytes.
+go build -o main2$GOEXE .
+cmp main$GOEXE main2$GOEXE
+
+# go install pkg@version builds the embedded package at the same version.
+env GOFLAGS=-modcacherw
+go install -n example.com/embedbuild@v1.0.0
+stderr 'go install example.com/embedbuild/wasm@v1.0.0'
+go install example.com/embedbuild@v1.0.0
+exec $GOPATH/bin/embedbuild$GOEXE
+stdout '^blob/app.wasm.gz$'
+env GOFLAGS=
+
+# A package that embeds a build of itself for the same target is an error.
+! go build -o self.out ./self
+stderr 'go:embedbuild cycle: example.com/eb/self GOOS=js GOARCH=wasm'
+
+# The name must fall under a //go:embed pattern.
+! go build -o bad.out ./bad
+stderr 'nothere/x is not under any //go:embed pattern'
+
+-- go.mod --
+module example.com/eb
+
+go 1.27
+-- blob/README --
+committed
+-- wasm/main.go --
+package main
+
+func main() { println("wasm") }
+-- main.go --
+//go:embedbuild -gzip blob/app.wasm.gz GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+import (
+	"compress/gzip"
+	"embed"
+	"fmt"
+	"io"
+	"io/fs"
+)
+
+//go:embed blob
+var blob embed.FS
+
+func main() {
+	fs.WalkDir(blob, "blob", func(p string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			fmt.Println(p)
+		}
+		return nil
+	})
+	f, err := blob.Open("blob/app.wasm.gz")
+	if err != nil {
+		panic(err)
+	}
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		panic(err)
+	}
+	b, err := io.ReadAll(zr)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("module magic %x\n", b[:4])
+}
+-- self/self.bin --
+-- self/main.go --
+//go:embedbuild self.bin GOOS=js GOARCH=wasm example.com/eb/self
+
+package main
+
+import _ "embed"
+
+//go:embed self.bin
+var b []byte
+
+func main() { println(len(b)) }
+-- bad/main.go --
+//go:embedbuild nothere/x GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+func main() {}

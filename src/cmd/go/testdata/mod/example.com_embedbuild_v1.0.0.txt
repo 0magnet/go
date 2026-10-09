@@ -1,0 +1,40 @@
+example.com/embedbuild embeds a js/wasm build of its own wasm package.
+
+-- .info --
+{"Version":"v1.0.0"}
+-- .mod --
+module example.com/embedbuild
+
+go 1.27
+-- go.mod --
+module example.com/embedbuild
+
+go 1.27
+-- blob/README --
+committed
+-- wasm/main.go --
+package main
+
+func main() {}
+-- main.go --
+//go:embedbuild -gzip blob/app.wasm.gz GOOS=js GOARCH=wasm example.com/embedbuild/wasm
+
+package main
+
+import (
+	"embed"
+	"fmt"
+	"io/fs"
+)
+
+//go:embed blob
+var blob embed.FS
+
+func main() {
+	fs.WalkDir(blob, "blob", func(p string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			fmt.Println(p)
+		}
+		return nil
+	})
+}
