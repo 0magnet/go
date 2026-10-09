@@ -42,6 +42,7 @@
 //	buildmode       build modes
 //	c               calling between Go and C
 //	cache           build and test caching
+//	embedbuild      embedding a build of another package
 //	environment     environment variables
 //	filetype        file types
 //	goauth          GOAUTH environment variable
@@ -175,6 +176,11 @@
 //		cannot be included due to a missing tool or ambiguous directory structure.
 //	-compiler name
 //		name of compiler to use, as in runtime.Compiler (gccgo or gc).
+//	-embedbuild mode
+//		whether to build the packages named by //go:embedbuild directives:
+//		auto (the default) or off. When off, or for a package outside the
+//		modules being built, a directive is ignored and its -fallback file,
+//		if any, is embedded.
 //	-gccgoflags '[pattern=]arg list'
 //		arguments to pass on each gccgo compiler/linker invocation.
 //	-gcflags '[pattern=]arg list'
@@ -896,6 +902,7 @@
 //	    // Embedded files
 //	    EmbedPatterns      []string // //go:embed patterns
 //	    EmbedFiles         []string // files matched by EmbedPatterns
+//	    EmbedBuilds        []EmbedBuild // //go:embedbuild directives, see go help embedbuild
 //	    TestEmbedPatterns  []string // //go:embed patterns in TestGoFiles
 //	    TestEmbedFiles     []string // files matched by TestEmbedPatterns
 //	    XTestEmbedPatterns []string // //go:embed patterns in XTestGoFiles
@@ -2404,6 +2411,39 @@
 // The GOCACHEPROG environment variable can be used to provide an
 // externally managed build cache. For details see:
 // "go doc cmd/go/internal/cacheprog".
+//
+// # Embedding a build of another package
+//
+// A //go:embedbuild directive in the header of a Go file, before the package
+// clause, asks the go command to build a main package and embed the result
+// as a file:
+//
+//	//go:embedbuild [-gzip] [-strip] [-tags=list] [-fallback] name [KEY=value...] pkg
+//
+// The go command builds pkg for the target given by the KEY=value settings
+// and embeds the result as name, which must fall under one of the package's
+// //go:embed patterns. GOOS, GOARCH and the GOARCH-specific variable such as
+// GOAMD64 or GOWASM may be set, and default to the go command's own target.
+// The inner build is part of the same build: it is cached like any other
+// step and shows in the output of -n and -x.
+//
+// The -gzip flag compresses the result with gzip. The -strip flag links
+// pkg with -s -w. The -tags flag sets the build tags of the inner build,
+// which does not inherit the outer ones. The inner build never uses cgo,
+// the race detector or other instrumentation, or the outer -buildmode.
+//
+// A file named name may exist in the package directory only if the
+// directive is marked -fallback. That file is what a toolchain without
+// //go:embedbuild embeds, and what this go command embeds when the
+// directive is inactive. A directive is inactive when the build flag
+// -embedbuild=off is set, and in a package outside the modules being
+// built: the main modules, and the module of a package named on the
+// command line, as in 'go install pkg@version'. So a dependency never adds
+// a build to its importers. 'go list -json' reports each directive and,
+// in its Inactive field, why it is not used.
+//
+// Only build, install, run and test build the packages of directives.
+// A package that embeds a build of itself for the same target is an error.
 //
 // # Environment variables
 //

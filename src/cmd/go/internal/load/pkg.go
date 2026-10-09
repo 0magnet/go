@@ -112,8 +112,9 @@ type PackagePublic struct {
 	SysoFiles         []string `json:",omitempty"` // .syso system object files added to package
 
 	// Embedded files
-	EmbedPatterns []string `json:",omitempty"` // //go:embed patterns
-	EmbedFiles    []string `json:",omitempty"` // files matched by EmbedPatterns
+	EmbedPatterns []string     `json:",omitempty"` // //go:embed patterns
+	EmbedFiles    []string     `json:",omitempty"` // files matched by EmbedPatterns
+	EmbedBuilds   []EmbedBuild `json:",omitempty"` // //go:embedbuild directives
 
 	// Cgo directives
 	CgoCFLAGS    []string `json:",omitempty"` // cgo: flags for C compiler
@@ -238,6 +239,7 @@ type PackageInternal struct {
 	BuildInfo         *debug.BuildInfo    // add this info to package main
 	TestmainGo        *[]byte             // content for _testmain.go
 	Embed             map[string][]string // //go:embed comment mapping
+	Target            *Target             // target of a //go:embedbuild package, nil for the go command's own
 	OrigImportPath    string              // original import path before adding '_test' suffix
 	PGOProfile        string              // path to PGO profile
 	ForMain           string              // the main package if this package is built specifically for it
@@ -1041,10 +1043,10 @@ type resolvedImport struct {
 }
 
 // resolvedImportCache maps import strings to canonical package names.
-var resolvedImportCache par.Cache[importSpec, resolvedImport]
+var resolvedImportCache = new(par.Cache[importSpec, resolvedImport])
 
 // packageDataCache maps canonical package names (string) to package metadata.
-var packageDataCache par.ErrCache[string, *build.Package]
+var packageDataCache = new(par.ErrCache[string, *build.Package])
 
 // preloadWorkerCount is the number of concurrent goroutines that can load
 // packages. Experimentally, there are diminishing returns with more than
@@ -2028,6 +2030,9 @@ func (p *Package) load(ld *modload.Loader, ctx context.Context, opts PackageOpts
 			setError(err)
 			embedErr := err.(*EmbedError)
 			p.Error.setPos(p.Internal.Build.EmbedPatternPos[embedErr.Pattern])
+		} else if p.EmbedBuilds, err = resolveEmbedBuilds(p.Internal.Build.Directives, p.Internal.Embed); err != nil {
+			p.Incomplete = true
+			setError(err)
 		}
 	}
 
@@ -3030,6 +3035,7 @@ func PackagesAndErrors(ld *modload.Loader, ctx context.Context, opts PackageOpts
 	setToolFlags(ld, pkgs...)
 
 	setPGOProfilePath(pkgs)
+	loadEmbedBuilds(ld, ctx, opts, pkgs)
 
 	return pkgs
 }

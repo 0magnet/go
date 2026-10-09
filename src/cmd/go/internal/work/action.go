@@ -672,6 +672,12 @@ func (b *Builder) CompileAction(mode, depMode BuildMode, p *load.Package) *Actio
 			a.Deps = append(a.Deps, pgoAction)
 		}
 
+		for _, eb := range p.EmbedBuilds {
+			if a1 := b.embedBuildAction(p, eb); a1 != nil {
+				a.Deps = append(a.Deps, a1)
+			}
+		}
+
 		if p.Standard {
 			switch p.ImportPath {
 			case "builtin", "unsafe":

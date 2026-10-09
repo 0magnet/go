@@ -131,6 +131,11 @@ and test commands:
 		cannot be included due to a missing tool or ambiguous directory structure.
 	-compiler name
 		name of compiler to use, as in runtime.Compiler (gccgo or gc).
+	-embedbuild mode
+		whether to build the packages named by //go:embedbuild directives:
+		auto (the default) or off. When off, or for a package outside the
+		modules being built, a directive is ignored and its -fallback file,
+		if any, is embedded.
 	-gccgoflags '[pattern=]arg list'
 		arguments to pass on each gccgo compiler/linker invocation.
 	-gcflags '[pattern=]arg list'
@@ -353,6 +358,7 @@ func AddBuildFlags(cmd *base.Command, mask BuildFlagMask) {
 	cmd.Flag.Var((*tagsFlag)(&cfg.BuildContext.BuildTags), "tags", "")
 	cmd.Flag.Var((*base.StringsFlag)(&cfg.BuildToolexec), "toolexec", "")
 	cmd.Flag.BoolVar(&cfg.BuildTrimpath, "trimpath", false, "")
+	cmd.Flag.StringVar(&cfg.BuildEmbedBuild, "embedbuild", "auto", "")
 	cmd.Flag.BoolVar(&cfg.BuildWork, "work", false, "")
 
 	// Undocumented, unstable debugging flags.

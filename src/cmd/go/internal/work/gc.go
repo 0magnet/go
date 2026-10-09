@@ -45,7 +45,7 @@ func (gcToolchain) linker() string {
 func pkgPath(a *Action) string {
 	p := a.Package
 	ppath := p.ImportPath
-	if cfg.BuildBuildmode == "plugin" {
+	if buildmodeOf(p) == "plugin" {
 		ppath = pluginPath(a)
 	} else if p.Name == "main" && !p.Internal.ForceLibrary {
 		ppath = "main"
@@ -100,13 +100,13 @@ func (gcToolchain) gc(b *Builder, a *Action, archive string, importcfg, embedcfg
 	if extFiles == 0 {
 		defaultGcFlags = append(defaultGcFlags, "-complete")
 	}
-	if cfg.BuildContext.InstallSuffix != "" {
-		defaultGcFlags = append(defaultGcFlags, "-installsuffix", cfg.BuildContext.InstallSuffix)
+	if installSuffix(p) != "" {
+		defaultGcFlags = append(defaultGcFlags, "-installsuffix", installSuffix(p))
 	}
 	if a.buildID != "" {
 		defaultGcFlags = append(defaultGcFlags, "-buildid", a.buildID)
 	}
-	if p.Internal.OmitDebug || cfg.Goos == "plan9" || cfg.Goarch == "wasm" {
+	if p.Internal.OmitDebug || goosOf(p) == "plan9" || goarchOf(p) == "wasm" {
 		defaultGcFlags = append(defaultGcFlags, "-dwarf=false")
 	}
 	if strings.HasPrefix(ToolchainVersion, "go1") && !strings.Contains(os.Args[0], "go_bootstrap") {
@@ -122,7 +122,7 @@ func (gcToolchain) gc(b *Builder, a *Action, archive string, importcfg, embedcfg
 		defaultGcFlags = append(defaultGcFlags, "-symabis", symabis)
 	}
 
-	gcflags := str.StringList(forcedGcflags, p.Internal.Gcflags)
+	gcflags := str.StringList(forcedGcflagsOf(p), p.Internal.Gcflags)
 	if p.Internal.FuzzInstrument {
 		gcflags = append(gcflags, fuzzInstrumentFlags()...)
 	}
@@ -175,7 +175,7 @@ func (gcToolchain) gc(b *Builder, a *Action, archive string, importcfg, embedcfg
 		// code that uses those values to expect absolute paths.
 		args = append(args, fsys.Actual(f))
 	}
-	output, err = sh.runOut(base.Cwd(), cfgChangedEnv, args...)
+	output, err = sh.runOut(base.Cwd(), toolEnv(p), args...)
 	return ofile, output, err
 }
 
@@ -329,9 +329,9 @@ func asmArgs(a *Action, p *load.Package) []any {
 	// Add -I pkg/GOOS_GOARCH so #include "textflag.h" works in .s files.
 	inc := filepath.Join(cfg.GOROOT, "pkg", "include")
 	pkgpath := pkgPath(a)
-	args := []any{cfg.BuildToolexec, base.Tool("asm"), "-p", pkgpath, "-trimpath", a.trimpath(), "-I", a.Objdir, "-I", inc, "-D", "GOOS_" + cfg.Goos, "-D", "GOARCH_" + cfg.Goarch, forcedAsmflags, p.Internal.Asmflags}
-	if p.ImportPath == "runtime" && cfg.Goarch == "386" {
-		for _, arg := range forcedAsmflags {
+	args := []any{cfg.BuildToolexec, base.Tool("asm"), "-p", pkgpath, "-trimpath", a.trimpath(), "-I", a.Objdir, "-I", inc, "-D", "GOOS_" + goosOf(p), "-D", "GOARCH_" + goarchOf(p), forcedAsmflagsOf(p), p.Internal.Asmflags}
+	if p.ImportPath == "runtime" && goarchOf(p) == "386" {
+		for _, arg := range forcedAsmflagsOf(p) {
 			if arg == "-dynlink" {
 				args = append(args, "-D=GOBUILDMODE_shared=1")
 			}
@@ -342,30 +342,30 @@ func asmArgs(a *Action, p *load.Package) []any {
 		args = append(args, "-std")
 	}
 
-	if cfg.Goarch == "386" {
+	if goarchOf(p) == "386" {
 		// Define GO386_value from cfg.GO386.
-		args = append(args, "-D", "GO386_"+cfg.GO386)
+		args = append(args, "-D", "GO386_"+archVal(p, cfg.GO386))
 	}
 
-	if cfg.Goarch == "amd64" {
+	if goarchOf(p) == "amd64" {
 		// Define GOAMD64_value from cfg.GOAMD64.
-		args = append(args, "-D", "GOAMD64_"+cfg.GOAMD64)
+		args = append(args, "-D", "GOAMD64_"+archVal(p, cfg.GOAMD64))
 	}
 
-	if cfg.Goarch == "mips" || cfg.Goarch == "mipsle" {
+	if goarchOf(p) == "mips" || goarchOf(p) == "mipsle" {
 		// Define GOMIPS_value from cfg.GOMIPS.
-		args = append(args, "-D", "GOMIPS_"+cfg.GOMIPS)
+		args = append(args, "-D", "GOMIPS_"+archVal(p, cfg.GOMIPS))
 	}
 
-	if cfg.Goarch == "mips64" || cfg.Goarch == "mips64le" {
+	if goarchOf(p) == "mips64" || goarchOf(p) == "mips64le" {
 		// Define GOMIPS64_value from cfg.GOMIPS64.
-		args = append(args, "-D", "GOMIPS64_"+cfg.GOMIPS64)
+		args = append(args, "-D", "GOMIPS64_"+archVal(p, cfg.GOMIPS64))
 	}
 
-	if cfg.Goarch == "ppc64" || cfg.Goarch == "ppc64le" {
+	if goarchOf(p) == "ppc64" || goarchOf(p) == "ppc64le" {
 		// Define GOPPC64_power8..N from cfg.PPC64.
 		// We treat each powerpc version as a superset of functionality.
-		switch cfg.GOPPC64 {
+		switch archVal(p, cfg.GOPPC64) {
 		case "power10":
 			args = append(args, "-D", "GOPPC64_power10")
 			fallthrough
@@ -377,19 +377,19 @@ func asmArgs(a *Action, p *load.Package) []any {
 		}
 	}
 
-	if cfg.Goarch == "riscv64" {
+	if goarchOf(p) == "riscv64" {
 		// Define GORISCV64_value from cfg.GORISCV64.
-		args = append(args, "-D", "GORISCV64_"+cfg.GORISCV64)
+		args = append(args, "-D", "GORISCV64_"+archVal(p, cfg.GORISCV64))
 	}
 
-	if cfg.Goarch == "arm" {
+	if goarchOf(p) == "arm" {
 		// Define GOARM_value from cfg.GOARM, which can be either a version
 		// like "6", or a version and a FP mode, like "7,hardfloat".
 		switch {
-		case strings.Contains(cfg.GOARM, "7"):
+		case strings.Contains(archVal(p, cfg.GOARM), "7"):
 			args = append(args, "-D", "GOARM_7")
 			fallthrough
-		case strings.Contains(cfg.GOARM, "6"):
+		case strings.Contains(archVal(p, cfg.GOARM), "6"):
 			args = append(args, "-D", "GOARM_6")
 			fallthrough
 		default:
@@ -397,8 +397,8 @@ func asmArgs(a *Action, p *load.Package) []any {
 		}
 	}
 
-	if cfg.Goarch == "arm64" {
-		g, err := buildcfg.ParseGoarm64(cfg.GOARM64)
+	if goarchOf(p) == "arm64" {
+		g, err := buildcfg.ParseGoarm64(archVal(p, cfg.GOARM64))
 		if err == nil && g.LSE {
 			args = append(args, "-D", "GOARM64_LSE")
 		}
@@ -416,7 +416,7 @@ func (gcToolchain) asm(b *Builder, a *Action, sfiles []string) ([]string, error)
 		ofile := a.Objdir + sfile[:len(sfile)-len(".s")] + ".o"
 		ofiles = append(ofiles, ofile)
 		args1 := append(args, "-o", ofile, fsys.Actual(mkAbs(p.Dir, sfile)))
-		if err := b.Shell(a).run(p.Dir, p.ImportPath, cfgChangedEnv, args1...); err != nil {
+		if err := b.Shell(a).run(p.Dir, p.ImportPath, toolEnv(p), args1...); err != nil {
 			return nil, err
 		}
 	}
@@ -443,7 +443,7 @@ func (gcToolchain) symabis(b *Builder, a *Action, sfiles []string) (string, erro
 			return err
 		}
 
-		return sh.run(p.Dir, p.ImportPath, cfgChangedEnv, args...)
+		return sh.run(p.Dir, p.ImportPath, toolEnv(p), args...)
 	}
 
 	var symabis string // Only set if we actually create the file
@@ -599,13 +599,13 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 		}
 	}
 	var ldflags []string
-	if cfg.BuildContext.InstallSuffix != "" {
-		ldflags = append(ldflags, "-installsuffix", cfg.BuildContext.InstallSuffix)
+	if installSuffix(root.Package) != "" {
+		ldflags = append(ldflags, "-installsuffix", installSuffix(root.Package))
 	}
 	if root.Package.Internal.OmitDebug {
 		ldflags = append(ldflags, "-s", "-w")
 	}
-	if cfg.BuildBuildmode == "plugin" {
+	if buildmodeOf(root.Package) == "plugin" {
 		ldflags = append(ldflags, "-pluginpath", pluginPath(root))
 	}
 	if fips140.Enabled() {
@@ -619,7 +619,7 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 		// linker's build id, which will cause our build id to not
 		// match the next time the tool is built.
 		// Rely on the external build id instead.
-		if !platform.MustLinkExternal(cfg.Goos, cfg.Goarch, false) {
+		if !platform.MustLinkExternal(goosOf(root.Package), goarchOf(root.Package), false) {
 			ldflags = append(ldflags, "-X=cmd/internal/objabi.buildID="+root.buildID)
 		}
 	}
@@ -635,15 +635,15 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	// Else, use the CC environment variable and defaultCC as fallback.
 	var compiler []string
 	if cxx {
-		compiler = envList("CXX", cfg.DefaultCXX(cfg.Goos, cfg.Goarch))
+		compiler = envList("CXX", cfg.DefaultCXX(goosOf(root.Package), goarchOf(root.Package)))
 	} else {
-		compiler = envList("CC", cfg.DefaultCC(cfg.Goos, cfg.Goarch))
+		compiler = envList("CC", cfg.DefaultCC(goosOf(root.Package), goarchOf(root.Package)))
 	}
-	ldflags = append(ldflags, "-buildmode="+ldBuildmode)
+	ldflags = append(ldflags, "-buildmode="+ldBuildmodeOf(root.Package))
 	if root.buildID != "" {
 		ldflags = append(ldflags, "-buildid="+root.buildID)
 	}
-	ldflags = append(ldflags, forcedLdflags...)
+	ldflags = append(ldflags, forcedLdflagsOf(root.Package)...)
 	ldflags = append(ldflags, root.Package.Internal.Ldflags...)
 	ldflags, err := setextld(ldflags, compiler)
 	if err != nil {
@@ -662,11 +662,11 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	// On Linux, for a shared object, at least with the Gold linker,
 	// the output file path is recorded in the .gnu.version_d section.
 	dir := "."
-	if cfg.BuildBuildmode == "c-shared" || cfg.BuildBuildmode == "plugin" {
+	if buildmodeOf(root.Package) == "c-shared" || buildmodeOf(root.Package) == "plugin" {
 		dir, targetPath = filepath.Split(targetPath)
 	}
 
-	env := cfgChangedEnv
+	env := toolEnv(root.Package)
 	// When -trimpath is used, GOROOT is cleared
 	if cfg.BuildTrimpath {
 		env = append(env, "GOROOT=")

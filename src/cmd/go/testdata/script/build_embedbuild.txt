@@ -1,0 +1,214 @@
+# //go:embedbuild embeds a build of another package for another target.
+[short] skip 'builds a js/wasm binary'
+
+go build -o main$GOEXE .
+exec ./main$GOEXE
+stdout '^blob/README$'
+stdout '^blob/app.wasm.gz$'
+stdout '^module magic 0061736d$'
+
+# Equal inputs give equal bytes.
+go build -o main2$GOEXE .
+cmp main$GOEXE main2$GOEXE
+
+# The wasm link and the gzip come from the build cache.
+go build -x -o main3$GOEXE .
+! stderr 'GOARCH=.wasm. .*link -o'
+! stderr 'gzip -9'
+
+# go install pkg@version builds the embedded package at the same version.
+env GOFLAGS=-modcacherw
+go install -n example.com/embedbuild@v1.0.0
+stderr 'GOOS=.js. GOARCH=.wasm. .*link -o'
+stderr 'gzip -9 -n < .* > .*app.wasm.gz # internal'
+go install example.com/embedbuild@v1.0.0
+exec $GOPATH/bin/embedbuild$GOEXE
+stdout '^blob/app.wasm.gz$'
+env GOFLAGS=
+
+# A package that embeds a build of itself for the same target is an error.
+! go build -o self.out ./self
+stderr '^//go:embedbuild self.bin: cycle: example.com/eb/self js/wasm -> example.com/eb/self js/wasm$'
+
+# The name must fall under a //go:embed pattern.
+! go build -o bad.out ./bad
+stderr 'nothere/x is not under any //go:embed pattern'
+
+# Any target works: here a Windows and a Linux arm64 executable.
+go build -o cross.out ./cross
+exec ./cross.out
+stdout '^win 4d5a$'
+stdout '^arm64 7f454c46 b7$'
+
+# A file of the same name on disk must be marked -fallback.
+! go build -o nofb.out ./nofb
+stderr 'blob/app.bin exists; mark it -fallback'
+! go build -o missing.out ./missing
+stderr 'fallback, but blob/x.bin does not exist'
+
+# The build replaces a -fallback file, and -embedbuild=off keeps it.
+go build -o fb.out ./fb
+exec ./fb.out
+stdout '^0061736d$'
+go build -embedbuild=off -o fb.out ./fb
+exec ./fb.out
+stdout '^66616c6c$'
+go list -embedbuild=off -f '{{range .EmbedBuilds}}{{.Inactive}}{{end}}' ./fb
+stdout '^-embedbuild=off$'
+go list -f '{{range .EmbedBuilds}}{{.Name}} {{.Fallback}} [{{.Inactive}}]{{end}}' ./fb
+stdout '^blob/app.bin true \[\]$'
+
+# A directive in a dependency is inactive, so it adds no build to importers.
+cd dep
+go get example.com/embedbuild@v1.0.0
+go list -deps -f '{{.ImportPath}} {{range .EmbedBuilds}}[{{.Inactive}}]{{end}}' .
+stdout '^example.com/embedbuild/lib \[not in a module being built\]$'
+go build -x -o dep.out .
+! stderr 'GOARCH=.wasm.'
+exec ./dep.out
+stderr '^lib fallback$'
+cd ..
+
+-- go.mod --
+module example.com/eb
+
+go 1.27
+-- blob/README --
+committed
+-- wasm/main.go --
+package main
+
+func main() { println("wasm") }
+-- main.go --
+//go:embedbuild -gzip blob/app.wasm.gz GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+import (
+	"compress/gzip"
+	"embed"
+	"fmt"
+	"io"
+	"io/fs"
+)
+
+//go:embed blob
+var blob embed.FS
+
+func main() {
+	fs.WalkDir(blob, "blob", func(p string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			fmt.Println(p)
+		}
+		return nil
+	})
+	f, err := blob.Open("blob/app.wasm.gz")
+	if err != nil {
+		panic(err)
+	}
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		panic(err)
+	}
+	b, err := io.ReadAll(zr)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("module magic %x\n", b[:4])
+}
+-- self/self.bin --
+-- self/main.go --
+//go:embedbuild -fallback self.bin GOOS=js GOARCH=wasm example.com/eb/self
+
+package main
+
+import _ "embed"
+
+//go:embed self.bin
+var b []byte
+
+func main() { println(len(b)) }
+-- bad/main.go --
+//go:embedbuild nothere/x GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+func main() {}
+-- fb/blob/app.bin --
+fallback
+-- fb/main.go --
+//go:embedbuild -fallback blob/app.bin GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+import (
+	"embed"
+	"fmt"
+)
+
+//go:embed blob
+var blob embed.FS
+
+func main() {
+	b, err := blob.ReadFile("blob/app.bin")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%x\n", b[:4])
+}
+-- nofb/blob/app.bin --
+committed
+-- nofb/main.go --
+//go:embedbuild blob/app.bin GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+import "embed"
+
+//go:embed blob
+var blob embed.FS
+
+func main() { _ = blob }
+-- missing/blob/README --
+-- missing/main.go --
+//go:embedbuild -fallback blob/x.bin GOOS=js GOARCH=wasm example.com/eb/wasm
+
+package main
+
+import "embed"
+
+//go:embed blob
+var blob embed.FS
+
+func main() { _ = blob }
+-- dep/go.mod --
+module example.com/dep
+
+go 1.27
+-- dep/main.go --
+package main
+
+import "example.com/embedbuild/lib"
+
+func main() { println("lib", lib.Data()) }
+-- cross/blob/README --
+-- cross/main.go --
+//go:embedbuild blob/win.exe GOOS=windows GOARCH=amd64 example.com/eb/wasm
+//go:embedbuild -strip blob/arm64 GOOS=linux GOARCH=arm64 GOARM64=v8.0 example.com/eb/wasm
+
+package main
+
+import (
+	"embed"
+	"fmt"
+)
+
+//go:embed blob
+var blob embed.FS
+
+func main() {
+	w, _ := blob.ReadFile("blob/win.exe")
+	a, _ := blob.ReadFile("blob/arm64")
+	fmt.Printf("win %x\n", w[:2])
+	fmt.Printf("arm64 %x %x\n", a[:4], a[18])
+}

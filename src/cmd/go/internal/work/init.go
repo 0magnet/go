@@ -11,6 +11,7 @@ import (
 	"cmd/go/internal/base"
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/fsys"
+	"cmd/go/internal/load"
 	"cmd/go/internal/modload"
 	"cmd/internal/quoted"
 	"fmt"
@@ -58,6 +59,11 @@ func BuildInit(ld *modload.Loader) {
 	base.AtExit(closeBuilders)
 
 	modload.Init(ld)
+	// Only the commands that link load the package of a //go:embedbuild directive.
+	load.EmbedBuildsEnabled = slices.Contains([]string{"build", "install", "run", "test"}, cfg.CmdName)
+	if v := cfg.BuildEmbedBuild; v != "" && v != "auto" && v != "off" {
+		base.Fatalf("go: invalid -embedbuild=%s: must be auto or off", v)
+	}
 	instrumentInit()
 	buildModeInit()
 	initCompilerConcurrencyPool()

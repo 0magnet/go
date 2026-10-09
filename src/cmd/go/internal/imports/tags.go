@@ -6,6 +6,7 @@ package imports
 
 import (
 	"cmd/go/internal/cfg"
+	"fmt"
 	"sync"
 )
 
@@ -13,10 +14,18 @@ import (
 // It includes GOOS, GOARCH, the compiler, possibly "cgo",
 // release tags like "go1.13", and user-specified build tags.
 func Tags() map[string]bool {
-	return loadTagsOnce()
+	c := &cfg.BuildContext
+	key := fmt.Sprintf("%s/%s/%s/%v/%q/%q/%q", c.GOOS, c.GOARCH, c.Compiler, c.CgoEnabled, c.BuildTags, c.ToolTags, c.ReleaseTags)
+	if tags, ok := tagsCache.Load(key); ok {
+		return tags.(map[string]bool)
+	}
+	tags, _ := tagsCache.LoadOrStore(key, loadTags())
+	return tags.(map[string]bool)
 }
 
-var loadTagsOnce = sync.OnceValue(loadTags)
+// tagsCache holds a tag set per build context, since a //go:embedbuild
+// directive loads packages for a second target.
+var tagsCache sync.Map
 
 func loadTags() map[string]bool {
 	tags := map[string]bool{

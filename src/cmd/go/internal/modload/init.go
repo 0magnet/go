@@ -2313,3 +2313,10 @@ func CheckGodebug(verb, k, v string) error {
 	}
 	return fmt.Errorf("unknown %s %q", verb, k)
 }
+
+// SavePackageLoader returns a function that restores the loader's current
+// package loader, so a load for another target does not replace it.
+func (ld *Loader) SavePackageLoader() (restore func()) {
+	pl := ld.pkgLoader
+	return func() { ld.pkgLoader = pl }
+}

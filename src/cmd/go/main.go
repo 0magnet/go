@@ -74,6 +74,7 @@ func init() {
 		help.HelpBuildmode,
 		help.HelpC,
 		help.HelpCache,
+		help.HelpEmbedBuild,
 		help.HelpEnvironment,
 		help.HelpFileType,
 		help.HelpGoAuth,

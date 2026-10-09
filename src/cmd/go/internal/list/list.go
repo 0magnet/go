@@ -100,6 +100,7 @@ to -f '{{.ImportPath}}'. The struct being passed to the template is:
         // Embedded files
         EmbedPatterns      []string // //go:embed patterns
         EmbedFiles         []string // files matched by EmbedPatterns
+        EmbedBuilds        []EmbedBuild // //go:embedbuild directives, see go help embedbuild
         TestEmbedPatterns  []string // //go:embed patterns in TestGoFiles
         TestEmbedFiles     []string // files matched by TestEmbedPatterns
         XTestEmbedPatterns []string // //go:embed patterns in XTestGoFiles
@@ -618,7 +619,7 @@ func runList(ctx context.Context, cmd *base.Command, args []string) {
 		ModResolveTests:    *listTest,
 		AutoVCS:            true,
 		SuppressBuildInfo:  !*listExport && !listJsonFields.needAny("Stale", "StaleReason"),
-		SuppressEmbedFiles: !*listExport && !listJsonFields.needAny("EmbedFiles", "TestEmbedFiles", "XTestEmbedFiles"),
+		SuppressEmbedFiles: !*listExport && !listJsonFields.needAny("EmbedFiles", "EmbedBuilds", "TestEmbedFiles", "XTestEmbedFiles"),
 	}
 	pkgs := load.PackagesAndErrors(moduleLoader, ctx, pkgOpts, args)
 	if !*listE {

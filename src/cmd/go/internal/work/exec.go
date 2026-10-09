@@ -305,7 +305,7 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 	if p.Module != nil {
 		fmt.Fprintf(h, "go %s\n", p.Module.GoVersion)
 	}
-	fmt.Fprintf(h, "goos %s goarch %s\n", cfg.Goos, cfg.Goarch)
+	fmt.Fprintf(h, "goos %s goarch %s\n", goosOf(p), goarchOf(p))
 	fmt.Fprintf(h, "import %q\n", p.ImportPath)
 	fmt.Fprintf(h, "omitdebug %v standard %v local %v prefix %q\n", p.Internal.OmitDebug, p.Standard, p.Internal.Local, p.Internal.LocalPrefix)
 	if cfg.BuildTrimpath {
@@ -364,13 +364,13 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 	default:
 		base.Fatalf("buildActionID: unknown build toolchain %q", cfg.BuildToolchainName)
 	case "gc":
-		fmt.Fprintf(h, "compile %s %q %q\n", b.toolID("compile"), forcedGcflags, p.Internal.Gcflags)
+		fmt.Fprintf(h, "compile %s %q %q\n", b.toolID("compile"), forcedGcflagsOf(p), p.Internal.Gcflags)
 		if len(p.SFiles) > 0 {
-			fmt.Fprintf(h, "asm %q %q %q\n", b.toolID("asm"), forcedAsmflags, p.Internal.Asmflags)
+			fmt.Fprintf(h, "asm %q %q %q\n", b.toolID("asm"), forcedAsmflagsOf(p), p.Internal.Asmflags)
 		}
 
 		// GOARM, GOMIPS, etc.
-		key, val, _ := cfg.GetArchEnv()
+		key, val := archEnvOf(p)
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
 		if cfg.CleanGOEXPERIMENT != "" {
@@ -435,6 +435,9 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		}
 		if a1.Mode == "preprocess PGO profile" {
 			fmt.Fprintf(h, "pgofile %s\n", b.fileHash(a1.built))
+		}
+		if a1.Mode == "embed build" {
+			fmt.Fprintf(h, "embedbuild %s %s\n", a1.Actor.(*embedBuildActor).eb.Name, b.fileHash(a1.built))
 		}
 	}
 
@@ -899,6 +902,16 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 		for _, file := range p.EmbedFiles {
 			embed.Files[file] = fsys.Actual(filepath.Join(p.Dir, file))
 		}
+		for _, a1 := range a.Deps {
+			if a1.Mode != "embed build" {
+				continue
+			}
+			eb := a1.Actor.(*embedBuildActor).eb
+			if !slices.Contains(embed.Patterns[eb.Pattern], eb.Name) {
+				embed.Patterns[eb.Pattern] = append(embed.Patterns[eb.Pattern], eb.Name)
+			}
+			embed.Files[eb.Name] = a1.built
+		}
 		js, err := json.MarshalIndent(&embed, "", "\t")
 		if err != nil {
 			return fmt.Errorf("marshal embedcfg: %v", err)
@@ -947,9 +960,9 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 	// Copy .h files named for goos or goarch or goos_goarch
 	// to names using GOOS and GOARCH.
 	// For example, defs_linux_amd64.h becomes defs_GOOS_GOARCH.h.
-	_goos_goarch := "_" + cfg.Goos + "_" + cfg.Goarch
-	_goos := "_" + cfg.Goos
-	_goarch := "_" + cfg.Goarch
+	_goos_goarch := "_" + goosOf(p) + "_" + goarchOf(p)
+	_goos := "_" + goosOf(p)
+	_goarch := "_" + goarchOf(p)
 	for _, file := range p.HFiles {
 		name, ext := fileExtSplit(file)
 		switch {
@@ -1543,7 +1556,7 @@ func (b *Builder) linkActionID(a *Action) cache.ActionID {
 
 	// Toolchain-independent configuration.
 	fmt.Fprintf(h, "link\n")
-	fmt.Fprintf(h, "buildmode %s goos %s goarch %s\n", cfg.BuildBuildmode, cfg.Goos, cfg.Goarch)
+	fmt.Fprintf(h, "buildmode %s goos %s goarch %s\n", buildmodeOf(p), goosOf(p), goarchOf(p))
 	fmt.Fprintf(h, "import %q\n", p.ImportPath)
 	fmt.Fprintf(h, "omitdebug %v standard %v local %v prefix %q\n", p.Internal.OmitDebug, p.Standard, p.Internal.Local, p.Internal.LocalPrefix)
 	fmt.Fprintf(h, "defaultgodebug %q\n", p.DefaultGODEBUG)
@@ -1587,13 +1600,13 @@ func (b *Builder) printLinkerConfig(h io.Writer, p *load.Package) {
 		base.Fatalf("linkActionID: unknown toolchain %q", cfg.BuildToolchainName)
 
 	case "gc":
-		fmt.Fprintf(h, "link %s %q %s\n", b.toolID("link"), forcedLdflags, ldBuildmode)
+		fmt.Fprintf(h, "link %s %q %s\n", b.toolID("link"), forcedLdflagsOf(p), ldBuildmodeOf(p))
 		if p != nil {
 			fmt.Fprintf(h, "linkflags %q\n", p.Internal.Ldflags)
 		}
 
 		// GOARM, GOMIPS, etc.
-		key, val, _ := cfg.GetArchEnv()
+		key, val := archEnvOf(p)
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
 		if cfg.CleanGOEXPERIMENT != "" {
